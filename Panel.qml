@@ -139,9 +139,13 @@ Item {
   function applyModelsCache(raw) {
     try {
       var data = JSON.parse(String(raw || ""))
-      if (data && Array.isArray(data.all)) {
-        root.allModels = data.all.slice()
-        if (data.byAgent && data.byAgent[root.selectedAgent] && Array.isArray(data.byAgent[root.selectedAgent])) {
+      if (data && (Array.isArray(data.all) || Array.isArray(data.available))) {
+        // Prefer auth-filtered `available` for the dropdown; `all` is full catalog (5k+)
+        var base = []
+        if (Array.isArray(data.available) && data.available.length > 0) base = data.available.slice()
+        else if (Array.isArray(data.all)) base = data.all.slice()
+        root.allModels = base
+        if (data.byAgent && data.byAgent.hasOwnProperty(root.selectedAgent) && Array.isArray(data.byAgent[root.selectedAgent])) {
           root.availableModels = data.byAgent[root.selectedAgent].slice()
         } else {
           root.availableModels = Model.modelsForAgent(root.selectedAgent, root.allModels)

@@ -71,45 +71,71 @@ PY
   fi
 fi
 
-# Build per-agent lists from the full opencode cache (which has all providers, unfiltered)
+# Build per-agent lists: `all` from models.dev cache (unfiltered, 5k+), `available` from `opencode models` (auth-filtered, ~20)
 python3 - "$OPENCODE_CACHE" "$CACHE_FILE" <<'PY'
-import json, sys
+import json, sys, subprocess
 src, dst = sys.argv[1], sys.argv[2]
 data = json.load(open(src))
 
-# Collect all model ids as "provider/model"
+# Collect all model ids as "provider/model" (full, unfiltered)
 all_ids = []
 for provider, pdata in data.items():
   models = pdata.get("models", {}) if isinstance(pdata, dict) else {}
   for mid in models.keys():
-    # mid is already like "anthropic/claude-opus-4.7" or "deepseek/..." 
-    # For consistency with `opencode models` output which is "provider/model" for some but "provider/model" already,
-    # we keep as is. Some providers have nested ids like "deepseek/deepseek-v4-flash" which is already provider/model.
-    # The opencode cache's top key is provider, and mid is model id which may already include provider prefix or not.
-    # We normalize to ensure it contains a slash: if mid contains "/", use as is, else prefix with provider.
     if "/" in mid:
       all_ids.append(mid)
     else:
       all_ids.append(f"{provider}/{mid}")
-
-# Deduplicate and sort
 all_ids = sorted(set(all_ids))
 
-def filt(needle):
-  n = needle.lower()
-  return sorted([m for m in all_ids if n in m.lower()])
+# Collect auth-filtered list via `opencode models` (only providers with credentials)
+auth_ids = []
+try:
+  r = subprocess.run(["opencode", "models"], capture_output=True, text=True, timeout=5)
+  if r.returncode == 0:
+    for line in r.stdout.splitlines():
+      s = line.strip()
+      if s and "/" in s:
+        auth_ids.append(s)
+    auth_ids = sorted(set(auth_ids))
+except Exception as e:
+  auth_ids = []
 
+# Use auth list if available, otherwise fallback to full list
+base_ids = auth_ids if auth_ids else all_ids
+# For display we keep both: `all` = full (for reference), `available` = auth-filtered
+available_ids = auth_ids
+
+def filt_from(ids, needle):
+  n = needle.lower()
+  return sorted([m for m in ids if n in m.lower()])
+
+# byAgent = per-agent available (auth-filtered) — this is what the dropdown shows
 by_agent = {
+  "opencode": sorted(base_ids),
+  "claude": filt_from(base_ids, "claude"),
+  "codex": sorted([m for m in base_ids if "gpt" in m.lower() or "codex" in m.lower()]),
+  "agy": filt_from(base_ids, "gemini"),
+  "copilot": filt_from(base_ids, "copilot"),
+  "grok": filt_from(base_ids, "grok"),
+  "pi": filt_from(base_ids, "pi"),
+  "omp": filt_from(base_ids, "omp"),
+  "ori": filt_from(base_ids, "openrouter"),
+  "crush": filt_from(base_ids, "crush"),
+}
+
+# allByAgent = per-agent from full list (for reference, not used in dropdown)
+all_by_agent = {
   "opencode": sorted(all_ids),
-  "claude": filt("claude"),
+  "claude": filt_from(all_ids, "claude"),
   "codex": sorted([m for m in all_ids if "gpt" in m.lower() or "codex" in m.lower()]),
-  "agy": filt("gemini"),
-  "copilot": filt("copilot"),
-  "grok": filt("grok"),
-  "pi": filt("pi"),
-  "omp": filt("omp"),
-  "ori": filt("openrouter"),
-  "crush": filt("crush"),
+  "agy": filt_from(all_ids, "gemini"),
+  "copilot": filt_from(all_ids, "copilot"),
+  "grok": filt_from(all_ids, "grok"),
+  "pi": filt_from(all_ids, "pi"),
+  "omp": filt_from(all_ids, "omp"),
+  "ori": filt_from(all_ids, "openrouter"),
+  "crush": filt_from(all_ids, "crush"),
 }
 
 # Ensure at least the known defaults are present even if cache is stale
@@ -120,7 +146,8 @@ fallbacks = {
 }
 for k, fb in fallbacks.items():
   for m in fb:
-    if m not in by_agent[k]:
+    if m not in by_agent[k] and m in all_ids:
+      # Only add fallback if it exists in the full catalog (avoid phantom models)
       by_agent[k].append(m)
   by_agent[k] = sorted(set(by_agent[k]))
 
@@ -129,7 +156,9 @@ out = {
   "generatedAt": _dt2.datetime.now(_dt2.timezone.utc).isoformat().replace("+00:00", "Z"),
   "source": src,
   "all": all_ids,
-  "byAgent": by_agent
+  "available": available_ids,
+  "byAgent": by_agent,
+  "allByAgent": all_by_agent
 }
 
 import os
