@@ -22,15 +22,6 @@ Item {
   readonly property bool isOpen: opened
 
   function open(payloadJson) {
-    // payloadJson is optional JSON from `omarchy-shell shell summon ... '{}'`
-    // If it contains a prompt, preload it.
-    if (payloadJson) {
-      try {
-        var payload = JSON.parse(String(payloadJson))
-        if (payload && typeof payload.prompt === "string" && payload.prompt.trim() !== "")
-          promptText = String(payload.prompt)
-      } catch (e) { /* ignore non-json payloads */ }
-    }
     // Fresh session on every invoke: cancel lingering and clear state
     if (askProc.running) askProc.running = false
     elapsedTimer.running = false
@@ -40,8 +31,19 @@ Item {
     errorText = ""
     elapsedText = ""
     requestStartedMs = 0
+    // payloadJson is optional JSON from `omarchy-shell shell summon ... '{}'`
+    // If it contains a prompt, preload it (after clear so it persists)
+    if (payloadJson) {
+      try {
+        var payload = JSON.parse(String(payloadJson))
+        if (payload && typeof payload.prompt === "string" && payload.prompt.trim() !== "")
+          promptText = String(payload.prompt)
+      } catch (e) { /* ignore non-json payloads */ }
+    }
     opened = true
     if (settingsPanel) settingsPanel.visible = false
+    // Refresh settings from disk on each open to pick up external edits
+    if (settingsLoaded) settingsFile.reload()
     // Defer focus one tick so window is mapped
     Qt.callLater(function() {
       if (inputField) {
@@ -74,7 +76,7 @@ Item {
 
   property string selectedAgent: ""
   property string selectedModel: ""
-  property bool keepHistory: true
+  property bool keepHistory: false
   property var history: [] // {prompt, response, agent, model, ts}
   property var allModels: []
   property var availableModels: []
@@ -110,11 +112,12 @@ Item {
   FileView {
     id: settingsFile
     path: root.settingsPath
-    watchChanges: false
+    watchChanges: true
     atomicWrites: true
     printErrors: false
     onLoaded: root.loadSettings(text())
     onLoadFailed: root.loadSettings("")
+    onFileChanged: reload()
   }
 
   // ---- models cache (dynamic, not stored in code) ----
@@ -222,7 +225,7 @@ Item {
   onKeepHistoryChanged: scheduleSettingsSave()
 
   function loadSettings(raw) {
-    if (root.settingsLoaded) return
+    var isInitial = !root.settingsLoaded
     root.hydrating = true
     var hasSettings = false
     if (raw && raw.trim() !== "") {
@@ -254,6 +257,7 @@ Item {
         }
         if (typeof data.keepHistory === "boolean") root.keepHistory = data.keepHistory
         if (Array.isArray(data.history) && data.keepHistory) root.history = data.history.slice(0, 20)
+        else if (!data.keepHistory) root.history = []
         if (Array.isArray(data.allModels)) {
           root.allModels = data.allModels.slice(0, 300)
         } else if (Array.isArray(data.availableModels)) {
@@ -265,19 +269,24 @@ Item {
     }
     // Compute per-agent model list after agent/allModels are known
     root.availableModels = Model.modelsForAgent(root.selectedAgent, root.allModels)
-    // If no agent set, try omarchy default; otherwise ensure a sensible default
-    if (root.selectedAgent === "" || !Model.isValidAgent(root.selectedAgent)) {
-      if (!hasSettings) defaultAgentProc.running = true
-      else if (root.selectedAgent === "") root.selectedAgent = "opencode"
+    if (isInitial) {
+      // If no agent set, try omarchy default; otherwise ensure a sensible default
+      if (root.selectedAgent === "" || !Model.isValidAgent(root.selectedAgent)) {
+        if (!hasSettings) defaultAgentProc.running = true
+        else if (root.selectedAgent === "") root.selectedAgent = "opencode"
+      }
+      root.previousAgent = root.selectedAgent
+      root.hydrating = false
+      root.settingsLoaded = true
+      if (!hasSettings && root.selectedAgent === "") {
+        defaultAgentProc.running = true
+      }
+      // Always refresh models list after load (throttled)
+      Qt.callLater(function() { if (!modelsProc.running) modelsProc.running = true })
+    } else {
+      root.previousAgent = root.selectedAgent
+      root.hydrating = false
     }
-    root.previousAgent = root.selectedAgent
-    root.hydrating = false
-    root.settingsLoaded = true
-    if (!hasSettings && root.selectedAgent === "") {
-      defaultAgentProc.running = true
-    }
-    // Always refresh models list after load (throttled)
-    Qt.callLater(function() { if (!modelsProc.running) modelsProc.running = true })
   }
 
   function flushSettings() {
@@ -297,9 +306,20 @@ Item {
         availableModels: root.availableModels
       }
       settingsFile.setText(JSON.stringify(payload, null, 2) + "\n")
+      // Ensure file is 0600 (contains prompts when keepHistory:true)
+      Qt.callLater(function() {
+        settingsChmodProc.command = ["bash", "-c", "chmod 600 \"$1\" 2>/dev/null || true", "chmod-helper", root.settingsPath]
+        if (!settingsChmodProc.running) settingsChmodProc.running = true
+      })
     } catch (e) {
       console.warn("quick-ai: failed to flush settings:", e)
     }
+  }
+
+  Process {
+    id: settingsChmodProc
+    stdout: StdioCollector { waitForEnd: true }
+    stderr: StdioCollector { waitForEnd: true }
   }
 
   // ---- fetch default omarchy agent if no saved settings ----
@@ -313,7 +333,7 @@ Item {
         if (name !== "" && Model.isValidAgent(name) && !root.hydrating && (root.selectedAgent === "opencode" || root.selectedAgent === "")) {
           // Only override default if still at initial value
           root.selectedAgent = name
-        } else if (root.selectedAgent === "" && !hasSettings) {
+        } else if (root.selectedAgent === "") {
           root.selectedAgent = "opencode"
         }
       } else if (root.selectedAgent === "") {
@@ -421,9 +441,9 @@ Item {
       text = String(promptText || "")
     }
     if (text === "") return
-    // Use wl-copy via Process; fallback to xclip
+    // Use wl-copy via Process; fallback to xclip/xsel — exit 1 if all fail
     copyProc.textToCopy = text
-    copyProc.command = ["bash", "-c", "printf %s \"$1\" | wl-copy 2>/dev/null || printf %s \"$1\" | xclip -selection clipboard 2>/dev/null || printf %s \"$1\" | xsel --clipboard 2>/dev/null; echo ok", "copy-helper", text]
+    copyProc.command = ["bash", "-c", "if printf %s \"$1\" | wl-copy 2>/dev/null || printf %s \"$1\" | xclip -selection clipboard 2>/dev/null || printf %s \"$1\" | xsel --clipboard 2>/dev/null; then echo ok; else echo fail; exit 1; fi", "copy-helper", text]
     copyProc.running = true
   }
 
@@ -453,7 +473,7 @@ Item {
     scheduleSettingsSave()
   }
 
-  // ---- elapsed timer while busy ----
+  // ---- elapsed timer while busy (timeout handled solely by timeoutTimer) ----
   Timer {
     id: elapsedTimer
     interval: 500
@@ -462,15 +482,6 @@ Item {
     onTriggered: {
       if (!askProc.running) { running = false; return }
       var ms = Date.now() - requestStartedMs
-      // Timeout after 90s
-      if (ms > 90000) {
-        askProc.running = false
-        errorText = "Request timed out after 90s. Check network / model availability.\n" + Model.authHelpFor(selectedAgent)
-        elapsedText = "timeout"
-        running = false
-        timeoutTimer.running = false
-        return
-      }
       var s = Math.floor(ms / 1000)
       if (s < 60) elapsedText = s + "s"
       else elapsedText = Math.floor(s/60) + "m " + (s%60) + "s"
@@ -1038,7 +1049,7 @@ Item {
                 width: parent.width - sendBtn.width - cancelBtn.width - parent.spacing*2
                 height: parent.height
                 text: root.promptText
-                placeholderText: "Ask anything… (Enter to send, Shift+Enter for newline)"
+                placeholderText: "Ask anything… (Enter to send)"
                 foreground: root.foreground
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.body
@@ -1046,18 +1057,7 @@ Item {
                 onTextChanged: root.promptText = text
                 onAccepted: root.send()
                 Keys.onPressed: function(event) {
-                  if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                    if (event.modifiers & Qt.ShiftModifier) {
-                      // allow newline - but TextField is single-line, so ignore and send with newline insertion is not possible
-                      // We instead insert "\n" into promptText if needed, but TextField is single line: just send
-                      // For multiline, user can paste. For now Shift+Enter also sends.
-                      root.send()
-                      event.accepted = true
-                    } else if (!(event.modifiers & Qt.ControlModifier)) {
-                      // Plain Enter sends
-                      // onAccepted already handles, but ensure
-                    }
-                  } else if (event.key === Qt.Key_Escape) {
+                  if (event.key === Qt.Key_Escape) {
                     root.close()
                     event.accepted = true
                   } else if ((event.modifiers & Qt.ControlModifier) && event.key === Qt.Key_K) {

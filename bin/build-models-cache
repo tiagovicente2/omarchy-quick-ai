@@ -56,9 +56,10 @@ by_agent = {
 }
 # Ensure each has at least a few entries
 import os
+import datetime
 os.makedirs(os.path.dirname(out_path), exist_ok=True)
 with open(out_path, 'w') as f:
-  json.dump({"generatedAt": __import__("datetime").datetime.utcnow().isoformat()+"Z", "byAgent": by_agent, "all": models}, f, indent=2)
+  json.dump({"generatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"), "byAgent": by_agent, "all": models}, f, indent=2)
 print(f"Wrote fallback cache with {len(models)} models", file=sys.stderr)
 PY
     rm -f "$tmp"
@@ -123,8 +124,9 @@ for k, fb in fallbacks.items():
       by_agent[k].append(m)
   by_agent[k] = sorted(set(by_agent[k]))
 
+import datetime as _dt2
 out = {
-  "generatedAt": __import__("datetime").datetime.utcnow().isoformat()+"Z",
+  "generatedAt": _dt2.datetime.now(_dt2.timezone.utc).isoformat().replace("+00:00", "Z"),
   "source": src,
   "all": all_ids,
   "byAgent": by_agent

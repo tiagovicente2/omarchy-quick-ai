@@ -31,16 +31,23 @@ function normalizeModel(model) {
   var s = String(model || "").trim()
   // disallow newlines, control chars, overly long
   if (s.indexOf("\n") >= 0 || s.indexOf("\r") >= 0) return ""
-  if (s.length > 120) return s.slice(0, 120)
+  if (s.length > 120) s = s.slice(0, 120)
+  s = s.trim()
+  if (s === "") return ""
+  // legacy short names without provider prefix: auto-prefix for backward compat
+  if (s.indexOf("/") === -1) {
+    if (/^gpt-/.test(s) || /^codex/.test(s)) s = "openai/" + s
+    else if (/^claude-/.test(s)) s = "anthropic/" + s
+    else if (/^gemini-/.test(s)) s = "google/" + s
+    else return ""
+  }
+  if (!/^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._:\/-]+$/.test(s)) return ""
   return s
 }
 
 function defaultModelFor(agent) {
   var s = String(agent || "")
   if (s === "opencode") return "openai/gpt-5.6-sol"
-  if (s === "codex") return "gpt-5.6-sol"
-  if (s === "claude") return "claude-sonnet-4-5"
-  if (s === "agy") return "gemini-3.7-flash"
   return ""
 }
 
@@ -105,18 +112,21 @@ function authHelpFor(agent) {
 }
 
 function stripThinking(text) {
-  // Some agents wrap thinking in <thinking> blocks; we keep raw for v1
-  return String(text || "")
+  var s = String(text || "")
+  // Remove <thinking>...</thinking> blocks that some agents emit
+  return s.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "").trim()
 }
 
 function formatDuration(ms) {
   if (!(ms > 0)) return "now"
-  var minutes = Math.floor(ms / 60000)
+  var s = Math.floor(ms / 1000)
+  if (s < 60) return s + "s"
+  var minutes = Math.floor(s / 60)
   var hours = Math.floor(minutes / 60)
   var days = Math.floor(hours / 24)
   if (days > 0) return days + "d " + (hours % 24) + "h"
   if (hours > 0) return hours + "h " + (minutes % 60) + "m"
-  return Math.max(1, minutes) + "m"
+  return minutes + "m " + (s % 60) + "s"
 }
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
