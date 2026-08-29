@@ -696,7 +696,6 @@ Item {
     WlrLayershell.namespace: "omarchy-quick-ai"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: root.opened ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
-    focusable: true
     // Ensure closing clears shell registry when dismissed via Escape / scrim
     // (shell.hide is also called by outside click; deduped via isPluginOpen check)
     onVisibleChanged: {
@@ -707,13 +706,6 @@ Item {
           Qt.callLater(function(){ root.shell.hide(root.currentPluginId()) })
         }
       }
-    }
-
-    // Esc handling must be on an Item; Keys cannot attach to WaylandPanelInterface
-    FocusScope {
-      anchors.fill: parent
-      focus: root.opened
-      Keys.onEscapePressed: root.close()
     }
 
     // Scrim
