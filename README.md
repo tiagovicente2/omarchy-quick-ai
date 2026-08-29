@@ -66,8 +66,8 @@ Settings live at `~/.config/omarchy/quick-ai.json` (auto-created):
 ```
 
 - **Agent** — enum from `omarchy-default-agent` (`omarchy default agent <name>`). Plugin reads `~/.config/omarchy/defaults/agent` as fallback default if no settings yet.
-- **Model** — free-form `provider/model` for `opencode`. Empty = agent default (see `Model.js:defaultModelFor`). Refresh list via ↻ button (`opencode models`).
-- **keepHistory** — when on, saves last 20 Q&A to disk; off = ephemeral.
+- **Model** — free-form `provider/model` for `opencode` (validated `provider/model`, legacy `gpt-…` → `openai/…` etc. via `Model.js:normalizeModel`). Empty = agent default (`opencode` → `openai/gpt-5.6-sol`, others → native default). Refresh list via ↻ button (`opencode models --refresh` → `~/.cache/omarchy/quick-ai/models.json`).
+- **keepHistory** — when on, saves last 20 Q&A to disk (`0600`); off = ephemeral (default `false` for privacy). Also stores `modelByAgent`, `allModels`/`availableModels` (up to 300).
 
 To change via CLI:
 
@@ -81,14 +81,14 @@ jq '.model="anthropic/claude-sonnet-4-5"' ~/.config/omarchy/quick-ai.json > /tmp
 ```
 Panel.qml ──(Process)──▶ bin/quick-ask <agent> <model> <prompt>
                                │
-                               ├─ opencode? ─▶ opencode run --agent build --model <provider/model> --format json "prompt"
-                               ├─ claude ─────▶ claude --permission-mode auto -- "prompt"
-                               ├─ codex ──────▶ codex --approve-for-me -- "prompt"
-                               ├─ agy ────────▶ agy --prompt-interactive "prompt"
-                               └─ other ──────▶ omarchy agent fallback / native binary
+                               ├─ opencode ──▶ opencode run --model <provider/model> --format json "prompt"
+                               ├─ claude ────▶ if model set + opencode → opencode run; else claude --permission-mode auto -- "prompt"
+                               ├─ codex ─────▶ if model set + opencode → opencode run; else codex --approve-for-me -- "prompt"
+                               ├─ agy ───────▶ if model set + opencode → opencode run; else agy --prompt-interactive "prompt"
+                               └─ other ─────▶ if model set + opencode → opencode run; else native binary / fallback
 ```
 
-`Panel.qml` uses `StdioCollector` (blocking, simple) and extracts JSON streaming fields (`delta`/`text`/`content`) if present, else falls back to plain stdout. Errors are surfaced with auth hints (`Model.js:authHelpFor`).
+`Panel.qml` uses `StdioCollector` (blocking, simple) and extracts JSON streaming fields (`delta`/`text`/`content`) if present, else falls back to plain stdout. Errors are surfaced with auth hints (`Model.js:authHelpFor`). Empty model = agent default (`opencode` → `openai/gpt-5.6-sol`, others → native default); `provider/model` validated via `Model.js:normalizeModel`.
 
 ## Layout
 
