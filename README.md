@@ -71,51 +71,6 @@ To change via CLI:
 jq '.model="anthropic/claude-sonnet-4-5"' ~/.config/omarchy/quick-ai.json > /tmp/q && mv /tmp/q ~/.config/omarchy/quick-ai.json
 ```
 
-## How it works
-
-```
-Panel.qml ──(Process)──▶ bin/quick-ask <agent> <model> <prompt>
-                               │
-                               ├─ opencode ──▶ opencode run --model <provider/model> --format json "prompt"
-                               ├─ claude ────▶ if model set + opencode → opencode run; else claude --permission-mode auto -- "prompt"
-                               ├─ codex ─────▶ if model set + opencode → opencode run; else codex --approve-for-me -- "prompt"
-                               ├─ agy ───────▶ if model set + opencode → opencode run; else agy --prompt-interactive "prompt"
-                               └─ other ─────▶ if model set + opencode → opencode run; else native binary / fallback
-```
-
-`Panel.qml` uses `StdioCollector` (blocking, simple) and extracts JSON streaming fields (`delta`/`text`/`content`) if present, else falls back to plain stdout. Errors are surfaced with auth hints (`Model.js:authHelpFor`). Empty model = agent default (`opencode` → `openai/gpt-5.6-sol`, others → native default); `provider/model` validated via `Model.js:normalizeModel`.
-
-## Layout
-
-```
-┌─────────────────────────────────────────────┐
-│ ▣ Quick AI                        [⚙][×]   │  header (icon + agent/model)
-│─────────────────────────────────────────────│  settings (collapsible: Agent dropdown + Model field)
-│ [Ask anything…                ] [Send][×]  │  input row
-│ 12s • opencode / openai/gpt-5.6-sol         │  elapsed
-│ ┌─────────────────────────────────────────┐ │
-│ │ Thinking… / response text / error       │ │  response (Flickable, selectable Copy)
-│ │                                         │ │
-│ └─────────────────────────────────────────┘ │
-│ Tip: Enter to send • Esc to close • Super+Shift+K │ hint
-│              [Clear][Copy][Open in Agent][Close] │ footer
-└─────────────────────────────────────────────┘
-```
-
-Colors/spacing/radius from `qs.Commons.Style` + `Color.popups.*`, `BorderSurface` for card, matches `omarchy-kbd-rgb` overlay patterns.
-
-## Edge cases handled
-
-- **Empty prompt** — Send disabled, focus stays
-- **Agent not installed** — dispatcher exits 3, panel shows `… not installed. omarchy default agent <name>` + auth hint
-- **Invalid model** — `opencode run` error → “unknown model” + suggest `opencode models`
-- **No credentials** — detects `401`/`auth`/`credentials` in stderr, appends `authHelpFor(agent)`
-- **Offline / rate limited** — shows stderr + exit code; future: read `~/.local/state/omarchy/agents/usage/*.json` limits to warn when `percent≈1.0`
-- **Cancel** — while `busy`, Send becomes Cancel; second send queues prompt and restarts after 220ms
-- **Clipboard** — tries `wl-copy` → `xclip` → `xsel`, shows “Copied!” feedback
-- **Focus theft** — `WlrLayershell.keyboardFocus: Exclusive` while open, `Esc`/scrim click closes and calls `shell.hide(...)`
-- **History privacy** — only written when `keepHistory:true`, file `0600`, no prompt logged otherwise
-
 ## Development
 
 ```bash
