@@ -19,12 +19,7 @@ Spotlight-style overlay for fast AI questions. Press a keybind, type a prompt, p
 ## Installation
 
 ```bash
-# inside this monorepo (symlink method):
-ln -sfn ~/Projects/omarchy-plugins/plugins/omarchy-quick-ai ~/.config/omarchy/plugins/omarchy-quick-ai
-omarchy-shell shell rescanPlugins   # or: qs ipc call shell rescan
-
-# standalone git repo (after splitting):
-# omarchy plugin add https://github.com/tiagovicente2/omarchy-quick-ai.git --enable
+omarchy plugin add https://github.com/tiagovicente2/omarchy-quick-ai.git --enable
 ```
 
 ## Keybind (recommended)
