@@ -207,7 +207,7 @@ Item {
   }
   onSelectedModelChanged: {
     scheduleSettingsSave()
-    if (modelField && modelField.text !== selectedModel) modelField.text = selectedModel
+    if (modelDropdown && modelDropdown.value !== selectedModel) modelDropdown.value = selectedModel
     if (selectedAgent !== "" && modelByAgent[selectedAgent] !== selectedModel) {
       var copy2 = {}
       for (var k in modelByAgent) copy2[k] = modelByAgent[k]
@@ -951,39 +951,32 @@ Item {
                 Row {
                   width: parent.width
                   spacing: Style.space(6)
-                  TextField {
-                    id: modelField
-                    width: parent.width - modelPicker.width - clearModelBtn.width - parent.spacing*2
-                    height: Style.spacing.controlHeight
-                    text: root.selectedModel
-                    placeholderText: root.effectiveModel !== "" ? root.effectiveModel : "agent default"
-                    foreground: root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    onTextChanged: {
-                      if (root.hydrating) return
-                      var norm = Model.normalizeModel(text)
-                      if (text === "") norm = ""
-                      if (norm !== root.selectedModel) root.selectedModel = norm
-                    }
-                  }
-                  SearchableDropdown {
-                    id: modelPicker
-                    width: Style.spacing.controlHeight
+                  Dropdown {
+                    id: modelDropdown
+                    width: parent.width - clearModelBtn.width - parent.spacing
                     label: ""
                     showLabel: false
-                    value: ""
-                    options: root.availableModels
-                    placeholderText: "Pick"
-                    triggerLabel: "▼"
+                    rowHeight: Style.spacing.controlHeight
+                    value: root.selectedModel
+                    options: {
+                      var opts = []
+                      var def = root.displayModel
+                      // First entry = agent default / effective model
+                      opts.push({ value: "", label: def })
+                      for (var i = 0; i < root.availableModels.length; i++) {
+                        var m = String(root.availableModels[i])
+                        // Avoid duplicate of default
+                        if (m !== "" && m !== def) opts.push(m)
+                      }
+                      return opts
+                    }
                     foreground: root.foreground
                     fontFamily: root.fontFamily
-                    rowHeight: Style.spacing.controlHeight
                     onChanged: function(v) {
-                      if (v && v !== "") {
-                        modelField.text = v
-                        root.selectedModel = Model.normalizeModel(v)
-                      }
+                      var nv = Model.normalizeModel(v)
+                      // v === "" means default
+                      if (v === "") nv = ""
+                      if (nv !== root.selectedModel) root.selectedModel = nv
                     }
                   }
                   Button {
@@ -996,7 +989,7 @@ Item {
                     verticalPadding: Style.space(6)
                     implicitHeight: Style.spacing.controlHeight
                     implicitWidth: Style.spacing.controlHeight
-                    onClicked: { modelField.text = ""; root.selectedModel = "" }
+                    onClicked: root.selectedModel = ""
                   }
                 }
               }
