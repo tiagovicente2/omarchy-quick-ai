@@ -697,7 +697,6 @@ Item {
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: root.opened ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
     focusable: true
-    Keys.onEscapePressed: root.close()
     // Ensure closing clears shell registry when dismissed via Escape / scrim
     // (shell.hide is also called by outside click; deduped via isPluginOpen check)
     onVisibleChanged: {
@@ -708,6 +707,13 @@ Item {
           Qt.callLater(function(){ root.shell.hide(root.currentPluginId()) })
         }
       }
+    }
+
+    // Esc handling must be on an Item; Keys cannot attach to WaylandPanelInterface
+    FocusScope {
+      anchors.fill: parent
+      focus: root.opened
+      Keys.onEscapePressed: root.close()
     }
 
     // Scrim
@@ -1175,7 +1181,6 @@ Item {
                   font.pixelSize: Style.font.body
                   wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                   textFormat: Text.MarkdownText
-                  selectByMouse: true
                   onLinkActivated: function(link){ Qt.openUrlExternally(link) }
                 }
               }
