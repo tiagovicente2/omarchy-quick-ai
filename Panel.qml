@@ -1175,7 +1175,7 @@ Item {
 
               Button {
                 id: sendBtn
-                text: root.busy ? "Sending…" : "Send"
+                text: root.busy ? (root.elapsedText !== "" ? "Sending… (" + root.elapsedText + ")" : "Sending…") : "Send"
                 iconText: root.busy ? "󰔟" : "󰭹"
                 iconSpinning: root.busy
                 enabled: !root.busy && String(root.promptText).trim() !== ""
