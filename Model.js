@@ -83,7 +83,7 @@ function modelsForAgent(agent, allModels) {
   // For other agents, filter the full list by model name containing the agent's family
   var needle = ""
   if (a === "claude") needle = "claude"
-  else if (a === "codex") needle = "gpt"
+  else if (a === "codex") needle = "gpt|codex"
   else if (a === "agy" || a === "gemini" || a === "antigravity") needle = "gemini"
   else if (a === "copilot") needle = "copilot"
   else if (a === "grok") needle = "grok"
@@ -93,8 +93,15 @@ function modelsForAgent(agent, allModels) {
   else if (a === "crush") needle = "crush"
   if (needle) {
     var filtered = []
+    var needles = needle.split("|")
     for (var i = 0; i < list.length; i++) {
-      if (String(list[i]).toLowerCase().indexOf(needle) >= 0) filtered.push(list[i])
+      var candidate = String(list[i]).toLowerCase()
+      for (var j = 0; j < needles.length; j++) {
+        if (candidate.indexOf(needles[j]) >= 0) {
+          filtered.push(list[i])
+          break
+        }
+      }
     }
     return filtered
   }

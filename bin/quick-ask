@@ -9,6 +9,13 @@
 # Falls back to native binaries for non-opencode agents.
 set -euo pipefail
 
+# Quickshell supplies an open stdin pipe. OpenCode waits for that pipe to close,
+# so detach non-interactive requests from stdin before dispatching an agent.
+if [[ ! -t 0 ]]; then exec </dev/null; fi
+
+# Run from /tmp to avoid any agent scanning git repositories, project context, or local dotfiles
+cd /tmp || true
+
 agent="${1:-opencode}"
 model="${2:-}"
 shift 2 || true
@@ -56,10 +63,17 @@ if [[ -n "$model" ]] && ! [[ "$model" =~ ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._:/-]+$ ]];
   exit 2
 fi
 
-# Helper: ensure opencode is available
-has_opencode() { command -v opencode >/dev/null 2>&1; }
+# Prefer Omarchy's OpenCode 2 client when available; it is the desktop-integrated client.
+if command -v opencode2 >/dev/null 2>&1; then
+  OPENCODE_BIN="opencode2"
+elif command -v opencode >/dev/null 2>&1; then
+  OPENCODE_BIN="opencode"
+else
+  OPENCODE_BIN=""
+fi
+has_opencode() { [[ -n "$OPENCODE_BIN" ]]; }
 
-# For opencode-agent we route through `opencode run` so provider/model are honored.
+# For opencode-agent we route through the selected OpenCode client so provider/model are honored.
 # For other agents we could still route via opencode if a provider/model is set,
 # but native CLIs give better auth (oauth) for claude/codex/agy.
 case "$agent" in
@@ -69,37 +83,33 @@ case "$agent" in
       exit 3
     fi
     if [[ -n "$model" ]]; then
-      exec opencode run --model "$model" --format json "$prompt"
+      exec "$OPENCODE_BIN" run --model "$model" --format json "$prompt"
     else
-      exec opencode run --format json "$prompt"
+      exec "$OPENCODE_BIN" run --format json "$prompt"
     fi
     ;;
   claude|claude-code)
-    # If a provider/model is selected and opencode is available, honor it (better model control)
+    # If a provider/model is selected and OpenCode is available, honor it (better model control).
     if [[ -n "$model" ]] && has_opencode; then
-      exec opencode run --model "$model" --format json "$prompt"
+      exec "$OPENCODE_BIN" run --model "$model" --format json "$prompt"
     elif command -v claude >/dev/null 2>&1; then
-      # Claude Code headless: `claude --permission-mode auto -- "prompt"`
-      if claude --help 2>&1 | grep -q "permission-mode"; then
-        exec claude --permission-mode auto -- "$prompt"
-      else
-        exec claude -- "$prompt"
-      fi
+      # Print mode exits after one response and preserves the user's permission policy.
+      exec claude --print -- "$prompt"
     elif has_opencode; then
-      exec opencode run --format json "$prompt"
+      exec "$OPENCODE_BIN" run --format json "$prompt"
     else
-      echo "Claude Code not installed. Install via: omarchy default agent claude" >&2
-      exit 3
+      echo "Claude Code not installed. Install via: omarchy default agent claude" >&2      exit 3
     fi
     ;;
   codex)
-    if [[ -n "$model" ]] && has_opencode; then
-      exec opencode run --model "$model" --format json "$prompt"
-    elif command -v codex >/dev/null 2>&1; then
-      # Codex headless: `codex --approve-for-me -- "prompt"`
-      exec codex --approve-for-me -- "$prompt"
+    if command -v codex >/dev/null 2>&1; then
+      # Run non-interactively from the shell's non-git workdir without granting write access.
+      # The selected provider prefix is for the UI catalog; Codex expects only the model name.
+      codex_args=(exec --skip-git-repo-check --sandbox read-only)
+      if [[ -n "$model" ]]; then codex_args+=(--model "${model#*/}"); fi
+      exec codex "${codex_args[@]}" "$prompt"
     elif has_opencode; then
-      exec opencode run --format json "$prompt"
+      exec opencode run --model "$model" --format json "$prompt"
     else
       echo "Codex not installed. Install via: omarchy default agent codex" >&2
       exit 3
@@ -121,7 +131,8 @@ case "$agent" in
     if [[ -n "$model" ]] && has_opencode; then
       exec opencode run --model "$model" --format json "$prompt"
     elif command -v copilot >/dev/null 2>&1; then
-      exec copilot --allow-all --interactive "$prompt"
+      # Interactive mode keeps Copilot's normal approval policy intact.
+      exec copilot --interactive "$prompt"
     elif has_opencode; then
       exec opencode run --format json "$prompt"
     else
@@ -133,7 +144,8 @@ case "$agent" in
     if [[ -n "$model" ]] && has_opencode; then
       exec opencode run --model "$model" --format json "$prompt"
     elif command -v grok >/dev/null 2>&1; then
-      exec grok --permission-mode bypassPermissions -- "$prompt"
+      # Preserve the user's configured permission policy; never bypass approvals.
+      exec grok -- "$prompt"
     elif has_opencode; then
       exec opencode run --format json "$prompt"
     else
@@ -157,7 +169,8 @@ case "$agent" in
     if [[ -n "$model" ]] && has_opencode; then
       exec opencode run --model "$model" --format json "$prompt"
     elif command -v omp >/dev/null 2>&1; then
-      exec omp --auto-approve -- "$prompt"
+      # Preserve the user's configured approval policy; never auto-approve tools.
+      exec omp -- "$prompt"
     elif has_opencode; then
       exec opencode run --format json "$prompt"
     else

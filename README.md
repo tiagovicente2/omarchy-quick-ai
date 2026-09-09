@@ -10,7 +10,7 @@ Spotlight-style overlay for fast AI questions. Press a keybind, type a prompt, p
 
 - Centered overlay (`PanelWindow` + scrim) — not a floating Hyprland window
 - One-line prompt input (Enter to send, Esc to close)
-- Agent picker: `opencode`, `claude`, `codex`, `agy`, `copilot`, `grok`, `pi`, `omp`, `ori`, `crush` (from `omarchy-default-agent`)
+- Agent picker: `opencode`, `claude`, `codex`, `agy`, `copilot`, `grok`, `pi`, `omp`, `ori`, `crush`; first launch uses Omarchy's configured default when supported
 - Model input: `provider/model` (e.g. `openai/gpt-5.6-sol`, `anthropic/claude-opus-4`) — empty = agent default; list via `opencode models`
 - Streaming-friendly backend via `bin/quick-ask` dispatcher → `opencode run --format json` or native CLIs
 - Copy result (`wl-copy`/`xclip`/`xsel`), Clear, Open in full agent (`omarchy agent prompt`), elapsed timer + error help
@@ -55,14 +55,13 @@ Settings live at `~/.config/omarchy/quick-ai.json` (auto-created):
   "agent": "opencode",
   "model": "openai/gpt-5.6-sol",
   "keepHistory": false,
-  "history": [],
-  "availableModels": ["openai/gpt-5.6-sol", "anthropic/claude-opus-4.7", "opencode/mimo-v2.5-free"]
+  "history": []
 }
 ```
 
-- **Agent** — enum from `omarchy-default-agent` (`omarchy default agent <name>`). Plugin reads `~/.config/omarchy/defaults/agent` as fallback default if no settings yet.
-- **Model** — free-form `provider/model` for `opencode` (validated `provider/model`, legacy `gpt-…` → `openai/…` etc. via `Model.js:normalizeModel`). Empty = agent default (`opencode` → `openai/gpt-5.6-sol`, others → native default). Refresh list via ↻ button (`opencode models --refresh` → `~/.cache/omarchy/quick-ai/models.json`).
-- **keepHistory** — when on, saves last 20 Q&A to disk (`0600`); off = ephemeral (default `false` for privacy). Also stores `modelByAgent`, `allModels`/`availableModels` (up to 300).
+- **Agent** — choose from the plugin's supported-agent list. On first launch, the plugin reads `~/.config/omarchy/defaults/agent` and uses it when supported.
+- **Model** — free-form `provider/model` for `opencode` (validated `provider/model`, legacy `gpt-…` → `openai/…` etc. via `Model.js:normalizeModel`). Empty = agent default (`opencode` → `openai/gpt-5.6-sol`, others → native default). Refresh list via ↻ button (`opencode models --refresh` → `$XDG_CACHE_HOME/omarchy/quick-ai/models.json`, or `~/.cache/omarchy/quick-ai/models.json` when unset). The catalog is cached separately and is not saved in settings.
+- **keepHistory** — when on, saves last 20 Q&A to disk (`0600`); off = ephemeral (default `false` for privacy). Settings store the chosen agent and per-agent model selection.
 
 To change via CLI:
 
@@ -84,8 +83,8 @@ omarchy-shell shell toggle omarchy-quick-ai
 
 ## TODO / Next
 
-- Streaming `SplitParser` incremental update (replace `StdioCollector` waitForEnd)
-- Markdown rendering (selectable `TextEdit` with links)
-- Model autocomplete dropdown (from `availableModels` filtered)
-- History drawer UI when `keepHistory:true`
-- Keybind docs in user Hyprland file auto-suggestion
+- [x] Streaming `SplitParser` incremental update
+- [ ] Markdown rendering (selectable `TextEdit` with links)
+- [ ] Model autocomplete dropdown (from `availableModels` filtered)
+- [ ] History drawer UI when `keepHistory:true`
+- [ ] Keybind docs in user Hyprland file auto-suggestion

@@ -98,6 +98,9 @@ Item {
   property string elapsedText: ""
   property double requestStartedMs: 0
   property string copyFeedback: ""
+  property string streamOut: ""
+  property string streamErr: ""
+  property bool streamHadJson: false
 
   function currentPluginId() {
     if (manifest && manifest.id) return String(manifest.id)
@@ -120,8 +123,12 @@ Item {
     onFileChanged: reload()
   }
 
-  // ---- models cache (dynamic, not stored in code) ----
-  readonly property string modelsCachePath: Quickshell.env("HOME") + "/.cache/omarchy/quick-ai/models.json"
+  // ---- models cache (dynamic, not stored in settings) ----
+  readonly property string cacheHome: {
+    var configured = String(Quickshell.env("XDG_CACHE_HOME") || "").trim()
+    return configured !== "" ? configured : Quickshell.env("HOME") + "/.cache"
+  }
+  readonly property string modelsCachePath: root.cacheHome + "/omarchy/quick-ai/models.json"
 
   FileView {
     id: modelsCacheFile
@@ -150,18 +157,26 @@ Item {
         } else {
           root.availableModels = Model.modelsForAgent(root.selectedAgent, root.allModels)
         }
+        root.clearUnavailableSelectedModel()
         return
       }
       if (data && Array.isArray(data.models)) {
         // Fallback for old format
         root.allModels = data.models.slice()
         root.availableModels = Model.modelsForAgent(root.selectedAgent, root.allModels)
+        root.clearUnavailableSelectedModel()
         return
       }
     } catch (e) {
       console.warn("quick-ai: failed to parse models cache", e)
     }
     root.availableModels = Model.modelsForAgent(root.selectedAgent, root.allModels)
+  }
+
+  function clearUnavailableSelectedModel() {
+    if (root.selectedModel !== "" && root.availableModels.indexOf(root.selectedModel) === -1) {
+      root.selectedModel = ""
+    }
   }
 
   Timer {
@@ -285,8 +300,11 @@ Item {
       if (!hasSettings && root.selectedAgent === "") {
         defaultAgentProc.running = true
       }
-      // Always refresh models list after load (throttled)
-      Qt.callLater(function() { if (!modelsProc.running) modelsProc.running = true })
+      // Reload after settings are applied so stale selected models can be cleared from the catalog.
+      Qt.callLater(function() {
+        modelsCacheFile.reload()
+        if (!modelsProc.running) modelsProc.running = true
+      })
     } else {
       root.previousAgent = root.selectedAgent
       root.hydrating = false
@@ -305,9 +323,7 @@ Item {
         model: root.selectedModel,
         modelByAgent: mapCopy,
         keepHistory: root.keepHistory,
-        history: root.keepHistory ? root.history : [],
-        allModels: root.allModels,
-        availableModels: root.availableModels
+        history: root.keepHistory ? root.history : []
       }
       settingsFile.setText(JSON.stringify(payload, null, 2) + "\n")
       // Ensure file is 0600 (contains prompts when keepHistory:true)
@@ -404,6 +420,9 @@ Item {
     errorText = ""
     responseText = ""
     elapsedText = ""
+    streamOut = ""
+    streamErr = ""
+    streamHadJson = false
     requestStartedMs = Date.now()
     elapsedTimer.running = true
     timeoutTimer.restart()
@@ -425,6 +444,9 @@ Item {
       errorText = "Cancelled."
       elapsedTimer.running = false
       timeoutTimer.running = false
+      streamOut = ""
+      streamErr = ""
+      streamHadJson = false
     }
   }
 
@@ -433,6 +455,9 @@ Item {
     responseText = ""
     errorText = ""
     elapsedText = ""
+    streamOut = ""
+    streamErr = ""
+    streamHadJson = false
     elapsedTimer.running = false
     copyFeedback = ""
     if (inputField) inputField.forceActiveFocus()
@@ -509,34 +534,43 @@ Item {
   // ---- processes ----
   Process {
     id: askProc
-    stdout: StdioCollector { id: askOut; waitForEnd: true }
-    stderr: StdioCollector { id: askErr; waitForEnd: true }
+    stdout: SplitParser {
+      splitMarker: "\n"
+      onRead: function(line) {
+        root.handleStdoutLine(line)
+      }
+    }
+    stderr: SplitParser {
+      splitMarker: "\n"
+      onRead: function(line) {
+        root.handleStderrLine(line)
+      }
+    }
     onExited: function(exitCode) {
       elapsedTimer.running = false
       timeoutTimer.running = false
       if (exitCode === 0) {
-        var out = String(askOut.text || "").trim()
-        var err = String(askErr.text || "").trim()
-        var jsonErr = extractJsonError(out) || extractJsonError(err)
+        var jsonErr = extractJsonError(streamOut) || extractJsonError(streamErr)
         if (jsonErr !== "") {
           errorText = jsonErr + "\n" + Model.authHelpFor(selectedAgent)
           responseText = ""
         } else {
-          // opencode json mode: try to extract text chunks
-          var extracted = extractFromJsonLines(out)
-          if (extracted !== "") {
-            responseText = extracted
-          } else if (out !== "") {
-            // For non-json agents (claude/codex) the answer is plain text
-            responseText = Model.stripThinking(out)
-          } else if (err !== "") {
-            responseText = ""
-            errorText = err.slice(0, 2000)
-          } else {
-            errorText = "No response (empty output)."
+          // If we accumulated responses via streaming, finalize them
+          if (streamHadJson) {
+            var extracted = extractFromJsonLines(streamOut)
+            if (extracted !== "") responseText = extracted
+          } else if (responseText === "" && streamOut.trim() !== "") {
+            responseText = Model.stripThinking(streamOut.trim())
           }
 
-          if (responseText !== "" && errorText === "") {
+          if (responseText === "") {
+            if (streamErr.trim() !== "") {
+              errorText = streamErr.trim().slice(0, 2000)
+            } else {
+              errorText = "No response (empty output)."
+            }
+          } else {
+            errorText = ""
             appendHistory(promptText, responseText)
             elapsedText = Model.formatDuration(Date.now() - requestStartedMs) + " • " + Model.agentLabel(selectedAgent) + " / " + displayModel
           }
@@ -546,9 +580,10 @@ Item {
         if (errorText.indexOf("Cancelled") >= 0 || errorText.indexOf("timed out") >= 0 || errorText.indexOf("timeout") >= 0) {
           responseText = ""
         } else {
-          var eout = String(askErr.text || "").trim()
-          var sout = String(askOut.text || "").trim()
-          var combined = (eout !== "" ? eout : sout)
+          var eout = String(streamErr || "").trim()
+          var sout = String(streamOut || "").trim()
+          var jsonFailure = extractJsonError(sout) || extractJsonError(eout)
+          var combined = jsonFailure !== "" ? jsonFailure : (eout !== "" ? eout : sout)
           if (combined === "") {
             if (exitCode === 15) combined = "Cancelled."
             else combined = "Agent exited with code " + exitCode
@@ -572,6 +607,57 @@ Item {
     }
   }
 
+  function handleStdoutLine(rawLine) {
+    var line = String(rawLine || "")
+    streamOut += (streamOut !== "" ? "\n" : "") + line
+
+    var trimmed = line.trim()
+    if (trimmed === "") return
+
+    if (trimmed.charAt(0) === "{") {
+      try {
+        var evt = JSON.parse(trimmed)
+        if (evt.type === "error" || evt.error) {
+          var err = extractJsonError(trimmed)
+          if (err !== "") errorText = err
+          return
+        }
+        var delta = ""
+        if (evt.part && typeof evt.part.text === "string") delta = evt.part.text
+        else if (evt.delta && typeof evt.delta === "string") delta = evt.delta
+        else if (evt.text && typeof evt.text === "string") delta = evt.text
+        else if (evt.content && typeof evt.content === "string") delta = evt.content
+
+        if (delta !== "") {
+          streamHadJson = true
+          // opencode returns cumulative text in evt.part.text or incremental in delta
+          if (evt.part && typeof evt.part.text === "string") {
+            responseText = evt.part.text
+          } else {
+            responseText += delta
+          }
+          return
+        }
+        if (evt.type || evt.event) {
+          streamHadJson = true
+          return
+        }
+      } catch (e) {
+        // Not JSON, continue to plain text append below
+      }
+    }
+
+    // Plain text line from non-json agent (e.g. claude, codex, agy)
+    if (!streamHadJson) {
+      responseText = Model.stripThinking(streamOut.trim())
+    }
+  }
+
+  function handleStderrLine(rawLine) {
+    var line = String(rawLine || "")
+    streamErr += (streamErr !== "" ? "\n" : "") + line
+  }
+
   function extractFromJsonLines(raw) {
     var text = String(raw || "").trim()
     if (text === "") return ""
@@ -591,6 +677,7 @@ Item {
           if (evt.delta && typeof evt.delta === "string") delta = evt.delta
           else if (evt.text && typeof evt.text === "string") delta = evt.text
           else if (evt.data && typeof evt.data === "string") delta = evt.data
+          else if (evt.part && typeof evt.part.text === "string") delta = evt.part.text
           else if (evt.message && evt.message.content) {
             // content may be string or parts
             if (typeof evt.message.content === "string") delta = evt.message.content
@@ -940,7 +1027,7 @@ Item {
                   Item { width: 6; height: 1 }
                   Button {
                     iconText: "󰑐"
-                    tooltipText: "Refresh models (`opencode models`)"
+                    tooltipText: "Refresh provider model catalog"
                     foreground: root.foreground
                     fontFamily: root.fontFamily
                     horizontalPadding: Style.space(6)
