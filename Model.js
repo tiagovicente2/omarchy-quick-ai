@@ -140,6 +140,152 @@ function formatDuration(ms) {
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)) }
 
+function escapeHtml(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+}
+
+function inlineFormat(text) {
+  var s = escapeHtml(text)
+  // links [text](url)
+  s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color:#5dade2; text-decoration:underline;">$1</a>')
+  // bold & italic combined
+  s = s.replace(/\*\*\*(.*?)\*\*\*/g, '<b><i>$1</i></b>')
+  // bold
+  s = s.replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+  s = s.replace(/__(.*?)__/g, '<b>$1</b>')
+  // italic
+  s = s.replace(/\*([^*\n]+)\*/g, '<i>$1</i>')
+  s = s.replace(/_([^_\n]+)_/g, '<i>$1</i>')
+  // inline code
+  s = s.replace(/`([^`]+)`/g, '<code style="background-color:rgba(128,128,128,0.22); font-family:monospace;">&nbsp;$1&nbsp;</code>')
+  return s
+}
+
+function markdownToRichText(md) {
+  if (!md) return ""
+  var lines = String(md).split("\n")
+  var out = []
+  var inTable = false
+  var tableRows = []
+  var inCode = false
+  var codeBuf = []
+  var inList = false
+
+  function flushTable() {
+    if (tableRows.length === 0) return
+    var html = '<table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse; margin-top:6px; margin-bottom:6px; border-color:rgba(128,128,128,0.35);">'
+    for (var r = 0; r < tableRows.length; r++) {
+      var isHeader = (r === 0)
+      html += '<tr>'
+      var cells = tableRows[r]
+      for (var c = 0; c < cells.length; c++) {
+        var tag = isHeader ? 'th' : 'td'
+        var style = isHeader
+          ? 'style="background-color:rgba(128,128,128,0.25); font-weight:bold; text-align:left; padding:4px 8px;"'
+          : 'style="padding:4px 8px;"'
+        html += '<' + tag + ' ' + style + '>' + inlineFormat(cells[c].trim()) + '</' + tag + '>'
+      }
+      html += '</tr>'
+    }
+    html += '</table>'
+    out.push(html)
+    tableRows = []
+    inTable = false
+  }
+
+  function flushList() {
+    if (inList) {
+      out.push('</ul>')
+      inList = false
+    }
+  }
+
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i]
+    var trimmed = line.trim()
+
+    // Code blocks
+    if (trimmed.indexOf("```") === 0) {
+      if (inTable) flushTable()
+      flushList()
+      if (inCode) {
+        out.push('<pre style="background-color:rgba(128,128,128,0.15); padding:8px; border-radius:4px; font-family:monospace; margin:6px 0;"><code>' + escapeHtml(codeBuf.join("\n")) + '</code></pre>')
+        codeBuf = []
+        inCode = false
+      } else {
+        inCode = true
+        codeBuf = []
+      }
+      continue
+    }
+    if (inCode) {
+      codeBuf.push(line)
+      continue
+    }
+
+    // Tables: lines starting and ending with |
+    if (trimmed.indexOf("|") === 0 && trimmed.lastIndexOf("|") === trimmed.length - 1 && trimmed.length > 2) {
+      flushList()
+      // Skip separator rows like |---|---|
+      if (/^\|(\s*:?-+:?\s*\|)+$/.test(trimmed)) {
+        continue
+      }
+      var parts = trimmed.slice(1, trimmed.length - 1).split("|")
+      tableRows.push(parts)
+      inTable = true
+      continue
+    } else if (inTable) {
+      flushTable()
+    }
+
+    // Lists
+    if (/^[-*+]\s+/.test(trimmed)) {
+      if (!inList) {
+        out.push('<ul style="margin:4px 0; padding-left:20px;">')
+        inList = true
+      }
+      out.push('<li style="margin:2px 0;">' + inlineFormat(trimmed.replace(/^[-*+]\s+/, '')) + '</li>')
+      continue
+    } else if (/^\d+\.\s+/.test(trimmed)) {
+      if (!inList) {
+        out.push('<ol style="margin:4px 0; padding-left:20px;">')
+        inList = true
+      }
+      out.push('<li style="margin:2px 0;">' + inlineFormat(trimmed.replace(/^\d+\.\s+/, '')) + '</li>')
+      continue
+    } else {
+      flushList()
+    }
+
+    // Headers
+    if (trimmed.indexOf("### ") === 0) {
+      out.push('<h3 style="margin-top:10px; margin-bottom:4px; font-size:1.1em; font-weight:bold;">' + inlineFormat(trimmed.slice(4)) + '</h3>')
+    } else if (trimmed.indexOf("## ") === 0) {
+      out.push('<h2 style="margin-top:14px; margin-bottom:6px; font-size:1.25em; font-weight:bold;">' + inlineFormat(trimmed.slice(3)) + '</h2>')
+    } else if (trimmed.indexOf("# ") === 0) {
+      out.push('<h1 style="margin-top:16px; margin-bottom:8px; font-size:1.4em; font-weight:bold;">' + inlineFormat(trimmed.slice(2)) + '</h1>')
+    } else if (trimmed.indexOf("> ") === 0) {
+      out.push('<blockquote style="border-left:3px solid rgba(128,128,128,0.5); margin:6px 0; padding-left:8px; font-style:italic;">' + inlineFormat(trimmed.slice(2)) + '</blockquote>')
+    } else if (trimmed === "") {
+      out.push('<p style="margin:4px 0;"></p>')
+    } else {
+      out.push('<p style="margin:4px 0; line-height:1.4;">' + inlineFormat(trimmed) + '</p>')
+    }
+  }
+
+  if (inTable) flushTable()
+  if (inList) flushList()
+  if (inCode) {
+    out.push('<pre style="background-color:rgba(128,128,128,0.15); padding:8px; border-radius:4px; font-family:monospace; margin:6px 0;"><code>' + escapeHtml(codeBuf.join("\n")) + '</code></pre>')
+  }
+
+  return out.join("\n")
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     supportedAgents: supportedAgents,
@@ -154,6 +300,7 @@ if (typeof module !== "undefined") {
     authHelpFor: authHelpFor,
     stripThinking: stripThinking,
     formatDuration: formatDuration,
-    clamp: clamp
+    clamp: clamp,
+    markdownToRichText: markdownToRichText
   }
 }

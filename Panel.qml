@@ -1264,12 +1264,12 @@ Item {
                   id: responseTextItem
                   visible: root.responseText !== "" && root.errorText === ""
                   width: parent.width
-                  text: root.responseText
+                  text: Model.markdownToRichText(root.responseText)
                   color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
                   wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                  textFormat: TextEdit.MarkdownText
+                  textFormat: TextEdit.RichText
                   readOnly: true
                   selectByMouse: true
                   selectedTextColor: Color.accentText
