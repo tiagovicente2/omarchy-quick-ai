@@ -1208,15 +1208,6 @@ Item {
                 onClicked: root.cancel()
               }
             }
-
-            Text {
-              visible: root.elapsedText !== ""
-              text: root.elapsedText
-              color: Qt.darker(root.foreground, 1.6)
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.caption
-              leftPadding: Style.space(2)
-            }
           }
 
           // ---- Response area ----
@@ -1366,7 +1357,7 @@ Item {
               onClicked: root.copyResult()
             }
 
-            Button {
+              Button {
               text: "Clear"
               iconText: "󰃢"
               fontSize: Style.font.caption
@@ -1376,6 +1367,20 @@ Item {
               verticalPadding: Style.space(6)
               bordered: true
               onClicked: root.clear()
+            }
+
+            Item {
+              Layout.fillWidth: true
+              height: 1
+            }
+
+            Text {
+              visible: !root.busy && root.responseText !== "" && root.elapsedText !== ""
+              text: root.elapsedText
+              color: Qt.darker(root.foreground, 1.8)
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+              anchors.verticalCenter: parent.verticalCenter
             }
           }
         }
