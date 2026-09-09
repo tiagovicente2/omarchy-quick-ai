@@ -154,12 +154,18 @@ case "$agent" in
     fi
     ;;
   pi)
-    if [[ -n "$model" ]] && has_opencode; then
-      exec opencode run --model "$model" --format json "$prompt"
-    elif command -v pi >/dev/null 2>&1; then
-      exec pi "$prompt"
+    if command -v pi >/dev/null 2>&1; then
+      if [[ -n "$model" ]]; then
+        exec pi --model "$model" "$prompt"
+      else
+        exec pi "$prompt"
+      fi
     elif has_opencode; then
-      exec opencode run --format json "$prompt"
+      if [[ -n "$model" ]]; then
+        exec opencode run --model "$model" --format json "$prompt"
+      else
+        exec opencode run --format json "$prompt"
+      fi
     else
       echo "Pi not installed. Install via: omarchy default agent pi" >&2
       exit 3

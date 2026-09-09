@@ -78,6 +78,19 @@ def filter_agent_models(agent_name, ids):
 
 agents = ["opencode", "claude", "codex", "agy", "copilot", "grok", "pi", "omp", "ori", "crush"]
 by_agent = {ag: filter_agent_models(ag, models) for ag in agents}
+try:
+  import subprocess
+  r_pi = subprocess.run(["pi", "--list-models"], capture_output=True, text=True, timeout=4)
+  if r_pi.returncode == 0:
+    pi_native = []
+    for line in r_pi.stdout.splitlines()[1:]:
+      parts = line.split()
+      if len(parts) >= 2 and "/" not in parts[0]:
+        pi_native.append(f"{parts[0]}/{parts[1]}")
+    if pi_native:
+      by_agent["pi"] = sorted(set(by_agent.get("pi", []) + pi_native))
+except Exception:
+  pass
 os.makedirs(os.path.dirname(out_path), exist_ok=True)
 with open(out_path, 'w') as f:
   json.dump({"generatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"), "byAgent": by_agent, "all": models}, f, indent=2)
@@ -164,6 +177,19 @@ def filter_agent_models(agent_name, ids):
         out.append(m)
   return sorted(set(out))
 
+# Query native models for CLI agents that manage their own provider catalogs
+pi_native_models = []
+try:
+  r_pi = subprocess.run(["pi", "--list-models"], capture_output=True, text=True, timeout=4)
+  if r_pi.returncode == 0:
+    for line in r_pi.stdout.splitlines()[1:]:
+      parts = line.split()
+      if len(parts) >= 2 and "/" not in parts[0]:
+        pi_native_models.append(f"{parts[0]}/{parts[1]}")
+    pi_native_models = sorted(set(pi_native_models))
+except Exception:
+  pi_native_models = []
+
 # byAgent = per-agent available (auth-filtered) — this is what the dropdown shows
 by_agent = {
   "opencode": filter_agent_models("opencode", base_ids),
@@ -172,7 +198,7 @@ by_agent = {
   "agy": filter_agent_models("agy", base_ids),
   "copilot": filter_agent_models("copilot", base_ids),
   "grok": filter_agent_models("grok", base_ids),
-  "pi": filter_agent_models("pi", base_ids),
+  "pi": sorted(set(pi_native_models + filter_agent_models("pi", base_ids))),
   "omp": filter_agent_models("omp", base_ids),
   "ori": filter_agent_models("ori", base_ids),
   "crush": filter_agent_models("crush", base_ids),
@@ -186,7 +212,7 @@ all_by_agent = {
   "agy": filter_agent_models("agy", all_ids),
   "copilot": filter_agent_models("copilot", all_ids),
   "grok": filter_agent_models("grok", all_ids),
-  "pi": filter_agent_models("pi", all_ids),
+  "pi": sorted(set(pi_native_models + filter_agent_models("pi", all_ids))),
   "omp": filter_agent_models("omp", all_ids),
   "ori": filter_agent_models("ori", all_ids),
   "crush": filter_agent_models("crush", all_ids),
