@@ -80,6 +80,7 @@ Item {
   property var history: [] // {prompt, response, agent, model, ts}
   property var allModels: []
   property var availableModels: []
+  property var modelsByAgent: ({})
   property var modelByAgent: ({})
   property string previousAgent: ""
 
@@ -152,8 +153,17 @@ Item {
         if (Array.isArray(data.available) && data.available.length > 0) base = data.available.slice()
         else if (Array.isArray(data.all)) base = data.all.slice()
         root.allModels = base
-        if (data.byAgent && data.byAgent.hasOwnProperty(root.selectedAgent) && Array.isArray(data.byAgent[root.selectedAgent])) {
-          root.availableModels = data.byAgent[root.selectedAgent].slice()
+
+        if (data.byAgent && typeof data.byAgent === "object") {
+          var byA = {}
+          for (var ag in data.byAgent) {
+            if (Array.isArray(data.byAgent[ag])) byA[ag] = data.byAgent[ag].slice()
+          }
+          root.modelsByAgent = byA
+        }
+
+        if (root.modelsByAgent.hasOwnProperty(root.selectedAgent) && Array.isArray(root.modelsByAgent[root.selectedAgent])) {
+          root.availableModels = root.modelsByAgent[root.selectedAgent].slice()
         } else {
           root.availableModels = Model.modelsForAgent(root.selectedAgent, root.allModels)
         }
@@ -210,7 +220,14 @@ Item {
     }
     scheduleSettingsSave()
     if (agentDropdown && agentDropdown.value !== selectedAgent) agentDropdown.value = selectedAgent
-    var filtered = Model.modelsForAgent(selectedAgent, allModels)
+
+    var filtered = []
+    if (modelsByAgent.hasOwnProperty(selectedAgent) && Array.isArray(modelsByAgent[selectedAgent])) {
+      filtered = modelsByAgent[selectedAgent].slice()
+    } else {
+      filtered = Model.modelsForAgent(selectedAgent, allModels)
+    }
+
     var needsUpdate = JSON.stringify(filtered) !== JSON.stringify(availableModels)
     if (needsUpdate) availableModels = filtered
     // Restore per-agent model if exists
@@ -236,7 +253,12 @@ Item {
     }
   }
   onAllModelsChanged: {
-    var filtered2 = Model.modelsForAgent(selectedAgent, allModels)
+    var filtered2 = []
+    if (modelsByAgent.hasOwnProperty(selectedAgent) && Array.isArray(modelsByAgent[selectedAgent])) {
+      filtered2 = modelsByAgent[selectedAgent].slice()
+    } else {
+      filtered2 = Model.modelsForAgent(selectedAgent, allModels)
+    }
     if (JSON.stringify(filtered2) !== JSON.stringify(availableModels)) {
       availableModels = filtered2
     }
@@ -1168,7 +1190,7 @@ Item {
                 bordered: true
                 selected: !root.busy && String(root.promptText).trim() !== ""
                 onClicked: root.send()
-                tooltipText: "Send (Enter)"
+                tooltipText: root.busy ? (root.elapsedText !== "" ? "Thinking… (" + root.elapsedText + ")" : "Thinking…") : "Send (Enter)"
               }
 
               Button {
@@ -1247,7 +1269,7 @@ Item {
                   textFormat: Text.PlainText
                 }
 
-                Text {
+                TextEdit {
                   id: responseTextItem
                   visible: root.responseText !== "" && root.errorText === ""
                   width: parent.width
@@ -1255,8 +1277,14 @@ Item {
                   color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
+                  lineHeight: 1.35
                   wrapMode: Text.WrapAtWordBoundaryOrAnywhere
-                  textFormat: Text.MarkdownText
+                  textFormat: TextEdit.MarkdownText
+                  readOnly: true
+                  selectByMouse: true
+                  selectedTextColor: Color.accentText
+                  selectionColor: Color.accent
+                  cursorVisible: false
                   onLinkActivated: function(link){ Qt.openUrlExternally(link) }
                 }
               }
