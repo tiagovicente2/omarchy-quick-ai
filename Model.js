@@ -80,32 +80,34 @@ function modelsForAgent(agent, allModels) {
   var list = Array.isArray(allModels) ? allModels : []
   // opencode shows the full list (dynamic, from cache)
   if (a === "" || a === "opencode") return list.slice()
-  // For other agents, filter the full list by model name containing the agent's family
-  var needle = ""
-  if (a === "claude") needle = "claude"
-  else if (a === "codex") needle = "gpt|codex"
-  else if (a === "agy" || a === "gemini" || a === "antigravity") needle = "gemini"
-  else if (a === "copilot") needle = "copilot"
-  else if (a === "grok") needle = "grok"
-  else if (a === "pi") needle = "pi"
-  else if (a === "omp") needle = "omp"
-  else if (a === "ori") needle = "openrouter"
-  else if (a === "crush") needle = "crush"
-  if (needle) {
-    var filtered = []
-    var needles = needle.split("|")
-    for (var i = 0; i < list.length; i++) {
-      var candidate = String(list[i]).toLowerCase()
-      for (var j = 0; j < needles.length; j++) {
-        if (candidate.indexOf(needles[j]) >= 0) {
-          filtered.push(list[i])
-          break
-        }
-      }
+
+  var filtered = []
+  for (var i = 0; i < list.length; i++) {
+    var m = String(list[i])
+    var low = m.toLowerCase()
+    var slashIdx = low.indexOf("/")
+    var prov = slashIdx >= 0 ? low.slice(0, slashIdx) : ""
+    var name = slashIdx >= 0 ? low.slice(slashIdx + 1) : low
+
+    if (a === "claude") {
+      if (prov === "anthropic" || prov === "claude" || name.indexOf("claude") >= 0) filtered.push(m)
+    } else if (a === "codex") {
+      if (prov === "openai" || name.indexOf("gpt") >= 0 || name.indexOf("codex") >= 0) filtered.push(m)
+    } else if (a === "agy" || a === "gemini" || a === "antigravity") {
+      if (prov === "google" || name.indexOf("gemini") >= 0) filtered.push(m)
+    } else if (a === "copilot") {
+      if (prov === "github-copilot" || low.indexOf("copilot") >= 0) filtered.push(m)
+    } else if (a === "grok") {
+      if (prov === "x-ai" || name.indexOf("grok") >= 0) filtered.push(m)
+    } else if (a === "pi" || a === "omp") {
+      if (prov === "pi" || prov === "omp" || /(^|[\/_-])pi([\/_-]|$)/.test(low)) filtered.push(m)
+    } else if (a === "ori" || a === "openrouter") {
+      if (prov === "openrouter" || low.indexOf("openrouter") >= 0) filtered.push(m)
+    } else if (a === "crush") {
+      if (prov === "crush" || /(^|[\/_-])crush([\/_-]|$)/.test(low)) filtered.push(m)
     }
-    return filtered
   }
-  return []
+  return filtered
 }
 
 function authHelpFor(agent) {

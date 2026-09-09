@@ -38,25 +38,46 @@ if [[ ! -f "$OPENCODE_CACHE" ]]; then
     done > "$tmp" || true
     # Build minimal JSON from that list
     python3 - "$tmp" "$CACHE_FILE" <<'PY'
-import json, sys, pathlib
+import json, sys, os, re, datetime
 tmp_path, out_path = sys.argv[1], sys.argv[2]
 models = [l.strip() for l in open(tmp_path).read().splitlines() if l.strip()]
-# Build per-agent from the flat list
-by_agent = {
-  "opencode": models,
-  "claude": [m for m in models if "claude" in m.lower()],
-  "codex": [m for m in models if "gpt" in m.lower() or "codex" in m.lower()],
-  "agy": [m for m in models if "gemini" in m.lower()],
-  "copilot": [m for m in models if "copilot" in m.lower()],
-  "grok": [m for m in models if "grok" in m.lower()],
-  "pi": [m for m in models if "pi" in m.lower()],
-  "omp": [m for m in models if "omp" in m.lower()],
-  "ori": [m for m in models if "openrouter" in m.lower()],
-  "crush": [m for m in models if "crush" in m.lower()],
-}
-# Ensure each has at least a few entries
-import os
-import datetime
+
+def filter_agent_models(agent_name, ids):
+  a = agent_name.lower()
+  out = []
+  for m in ids:
+    low = m.lower()
+    prov, _, name = low.partition("/")
+    if a == "opencode":
+      out.append(m)
+    elif a == "claude":
+      if prov in ("anthropic", "claude") or "claude" in name:
+        out.append(m)
+    elif a == "codex":
+      if prov == "openai" or "gpt" in name or "codex" in name:
+        out.append(m)
+    elif a in ("agy", "gemini", "antigravity"):
+      if prov == "google" or "gemini" in name:
+        out.append(m)
+    elif a == "copilot":
+      if prov == "github-copilot" or "copilot" in low:
+        out.append(m)
+    elif a == "grok":
+      if prov == "x-ai" or "grok" in name:
+        out.append(m)
+    elif a in ("pi", "omp"):
+      if prov in ("pi", "omp") or re.search(r"(^|[/_-])pi([/_-]|$)", low):
+        out.append(m)
+    elif a in ("ori", "openrouter"):
+      if prov == "openrouter" or "openrouter" in low:
+        out.append(m)
+    elif a == "crush":
+      if prov == "crush" or re.search(r"(^|[/_-])crush([/_-]|$)", low):
+        out.append(m)
+  return sorted(set(out))
+
+agents = ["opencode", "claude", "codex", "agy", "copilot", "grok", "pi", "omp", "ori", "crush"]
+by_agent = {ag: filter_agent_models(ag, models) for ag in agents}
 os.makedirs(os.path.dirname(out_path), exist_ok=True)
 with open(out_path, 'w') as f:
   json.dump({"generatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"), "byAgent": by_agent, "all": models}, f, indent=2)
@@ -106,36 +127,69 @@ base_ids = auth_ids if auth_ids else all_ids
 # For display we keep both: `all` = full (for reference), `available` = auth-filtered
 available_ids = auth_ids
 
-def filt_from(ids, needle):
-  n = needle.lower()
-  return sorted([m for m in ids if n in m.lower()])
+import re
+
+def filter_agent_models(agent_name, ids):
+  a = agent_name.lower()
+  out = []
+  for m in ids:
+    low = m.lower()
+    prov, _, name = low.partition("/")
+    if a == "opencode":
+      out.append(m)
+    elif a == "claude":
+      if prov in ("anthropic", "claude") or "claude" in name:
+        out.append(m)
+    elif a == "codex":
+      if prov == "openai" or "gpt" in name or "codex" in name:
+        out.append(m)
+    elif a in ("agy", "gemini", "antigravity"):
+      if prov == "google" or "gemini" in name:
+        out.append(m)
+    elif a == "copilot":
+      if prov == "github-copilot" or "copilot" in low:
+        out.append(m)
+    elif a == "grok":
+      if prov == "x-ai" or "grok" in name:
+        out.append(m)
+    elif a in ("pi", "omp"):
+      # Only match genuine pi models; avoid matching words like 'pickle'
+      if prov in ("pi", "omp") or re.search(r"(^|[/_-])pi([/_-]|$)", low):
+        out.append(m)
+    elif a in ("ori", "openrouter"):
+      if prov == "openrouter" or "openrouter" in low:
+        out.append(m)
+    elif a == "crush":
+      if prov == "crush" or re.search(r"(^|[/_-])crush([/_-]|$)", low):
+        out.append(m)
+  return sorted(set(out))
 
 # byAgent = per-agent available (auth-filtered) — this is what the dropdown shows
 by_agent = {
-  "opencode": sorted(base_ids),
-  "claude": filt_from(base_ids, "claude"),
-  "codex": sorted([m for m in base_ids if "gpt" in m.lower() or "codex" in m.lower()]),
-  "agy": filt_from(base_ids, "gemini"),
-  "copilot": filt_from(base_ids, "copilot"),
-  "grok": filt_from(base_ids, "grok"),
-  "pi": filt_from(base_ids, "pi"),
-  "omp": filt_from(base_ids, "omp"),
-  "ori": filt_from(base_ids, "openrouter"),
-  "crush": filt_from(base_ids, "crush"),
+  "opencode": filter_agent_models("opencode", base_ids),
+  "claude": filter_agent_models("claude", base_ids),
+  "codex": filter_agent_models("codex", base_ids),
+  "agy": filter_agent_models("agy", base_ids),
+  "copilot": filter_agent_models("copilot", base_ids),
+  "grok": filter_agent_models("grok", base_ids),
+  "pi": filter_agent_models("pi", base_ids),
+  "omp": filter_agent_models("omp", base_ids),
+  "ori": filter_agent_models("ori", base_ids),
+  "crush": filter_agent_models("crush", base_ids),
 }
 
 # allByAgent = per-agent from full list (for reference, not used in dropdown)
 all_by_agent = {
-  "opencode": sorted(all_ids),
-  "claude": filt_from(all_ids, "claude"),
-  "codex": sorted([m for m in all_ids if "gpt" in m.lower() or "codex" in m.lower()]),
-  "agy": filt_from(all_ids, "gemini"),
-  "copilot": filt_from(all_ids, "copilot"),
-  "grok": filt_from(all_ids, "grok"),
-  "pi": filt_from(all_ids, "pi"),
-  "omp": filt_from(all_ids, "omp"),
-  "ori": filt_from(all_ids, "openrouter"),
-  "crush": filt_from(all_ids, "crush"),
+  "opencode": filter_agent_models("opencode", all_ids),
+  "claude": filter_agent_models("claude", all_ids),
+  "codex": filter_agent_models("codex", all_ids),
+  "agy": filter_agent_models("agy", all_ids),
+  "copilot": filter_agent_models("copilot", all_ids),
+  "grok": filter_agent_models("grok", all_ids),
+  "pi": filter_agent_models("pi", all_ids),
+  "omp": filter_agent_models("omp", all_ids),
+  "ori": filter_agent_models("ori", all_ids),
+  "crush": filter_agent_models("crush", all_ids),
 }
 
 import datetime as _dt2
