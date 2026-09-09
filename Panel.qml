@@ -1268,7 +1268,6 @@ Item {
                   color: root.foreground
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.body
-                  lineHeight: 1.35
                   wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                   textFormat: TextEdit.MarkdownText
                   readOnly: true
