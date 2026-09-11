@@ -6,6 +6,9 @@
 # - With --refresh, runs `opencode models --refresh` first to fetch latest from models.dev
 set -euo pipefail
 
+# Add mise shims and user bin to PATH so CLI agents like pi can be found
+export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"
+
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy/quick-ai"
 CACHE_FILE="$CACHE_DIR/models.json"
 OPENCODE_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/opencode/models.json"
@@ -89,11 +92,14 @@ try:
         pi_native.append(f"{parts[0]}/{parts[1]}")
     if pi_native:
       by_agent["pi"] = sorted(set(by_agent.get("pi", []) + pi_native))
+      models = sorted(set(models + pi_native))
 except Exception:
   pass
 os.makedirs(os.path.dirname(out_path), exist_ok=True)
-with open(out_path, 'w') as f:
+tmp_out = out_path + ".tmp"
+with open(tmp_out, 'w') as f:
   json.dump({"generatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"), "byAgent": by_agent, "all": models}, f, indent=2)
+os.replace(tmp_out, out_path)
 print(f"Wrote fallback cache with {len(models)} models", file=sys.stderr)
 PY
     rm -f "$tmp"
@@ -190,6 +196,10 @@ try:
 except Exception:
   pi_native_models = []
 
+if pi_native_models:
+  all_ids = sorted(set(all_ids + pi_native_models))
+  available_ids = sorted(set(available_ids + pi_native_models))
+
 # byAgent = per-agent available (auth-filtered) — this is what the dropdown shows
 by_agent = {
   "opencode": filter_agent_models("opencode", base_ids),
@@ -230,8 +240,10 @@ out = {
 
 import os
 os.makedirs(os.path.dirname(dst), exist_ok=True)
-with open(dst, 'w') as f:
+tmp_dst = dst + ".tmp"
+with open(tmp_dst, 'w') as f:
   json.dump(out, f, indent=2)
+os.replace(tmp_dst, dst)
 
 if "--json" in sys.argv:
   print(json.dumps(out, indent=2))

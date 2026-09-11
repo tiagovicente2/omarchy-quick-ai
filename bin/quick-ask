@@ -9,6 +9,9 @@
 # Falls back to native binaries for non-opencode agents.
 set -euo pipefail
 
+# Add mise shims and user bin to PATH so CLI agents can be invoked directly
+export PATH="$HOME/.local/share/mise/shims:$HOME/.local/bin:$PATH"
+
 # Quickshell supplies an open stdin pipe. OpenCode waits for that pipe to close,
 # so detach non-interactive requests from stdin before dispatching an agent.
 if [[ ! -t 0 ]]; then exec </dev/null; fi
@@ -156,9 +159,9 @@ case "$agent" in
   pi)
     if command -v pi >/dev/null 2>&1; then
       if [[ -n "$model" ]]; then
-        exec pi --model "$model" "$prompt"
+        exec pi -p --model "$model" "$prompt"
       else
-        exec pi "$prompt"
+        exec pi -p "$prompt"
       fi
     elif has_opencode; then
       if [[ -n "$model" ]]; then

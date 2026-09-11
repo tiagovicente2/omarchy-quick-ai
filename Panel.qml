@@ -42,8 +42,9 @@ Item {
     }
     opened = true
     if (settingsPanel) settingsPanel.visible = false
-    // Refresh settings from disk on each open to pick up external edits
+    // Refresh settings and models cache from disk on each open to pick up external edits
     if (settingsLoaded) settingsFile.reload()
+    modelsCacheFile.reload()
     // Defer focus one tick so window is mapped
     Qt.callLater(function() {
       if (inputField) {
@@ -148,12 +149,6 @@ Item {
     try {
       var data = JSON.parse(String(raw || ""))
       if (data && (Array.isArray(data.all) || Array.isArray(data.available))) {
-        // Prefer auth-filtered `available` for the dropdown; `all` is full catalog (5k+)
-        var base = []
-        if (Array.isArray(data.available) && data.available.length > 0) base = data.available.slice()
-        else if (Array.isArray(data.all)) base = data.all.slice()
-        root.allModels = base
-
         if (data.byAgent && typeof data.byAgent === "object") {
           var byA = {}
           for (var ag in data.byAgent) {
@@ -162,7 +157,13 @@ Item {
           root.modelsByAgent = byA
         }
 
-        if (root.modelsByAgent.hasOwnProperty(root.selectedAgent) && Array.isArray(root.modelsByAgent[root.selectedAgent])) {
+        // Prefer auth-filtered `available` for the dropdown; `all` is full catalog (5k+)
+        var base = []
+        if (Array.isArray(data.available) && data.available.length > 0) base = data.available.slice()
+        else if (Array.isArray(data.all)) base = data.all.slice()
+        root.allModels = base
+
+        if (root.modelsByAgent && root.modelsByAgent.hasOwnProperty(root.selectedAgent) && Array.isArray(root.modelsByAgent[root.selectedAgent])) {
           root.availableModels = root.modelsByAgent[root.selectedAgent].slice()
         } else {
           root.availableModels = Model.modelsForAgent(root.selectedAgent, root.allModels)
@@ -180,7 +181,11 @@ Item {
     } catch (e) {
       console.warn("quick-ai: failed to parse models cache", e)
     }
-    root.availableModels = Model.modelsForAgent(root.selectedAgent, root.allModels)
+    if (root.modelsByAgent && root.modelsByAgent.hasOwnProperty(root.selectedAgent) && Array.isArray(root.modelsByAgent[root.selectedAgent])) {
+      root.availableModels = root.modelsByAgent[root.selectedAgent].slice()
+    } else {
+      root.availableModels = Model.modelsForAgent(root.selectedAgent, root.allModels)
+    }
   }
 
   function clearUnavailableSelectedModel() {
@@ -309,7 +314,11 @@ Item {
       }
     }
     // Compute per-agent model list after agent/allModels are known
-    root.availableModels = Model.modelsForAgent(root.selectedAgent, root.allModels)
+    if (root.modelsByAgent && root.modelsByAgent.hasOwnProperty(root.selectedAgent) && Array.isArray(root.modelsByAgent[root.selectedAgent])) {
+      root.availableModels = root.modelsByAgent[root.selectedAgent].slice()
+    } else {
+      root.availableModels = Model.modelsForAgent(root.selectedAgent, root.allModels)
+    }
     if (isInitial) {
       // If no agent set, try omarchy default; otherwise ensure a sensible default
       if (root.selectedAgent === "" || !Model.isValidAgent(root.selectedAgent)) {
@@ -1272,7 +1281,7 @@ Item {
                   textFormat: TextEdit.RichText
                   readOnly: true
                   selectByMouse: true
-                  selectedTextColor: Color.accentText
+                  selectedTextColor: root.foreground
                   selectionColor: Color.accent
                   cursorVisible: false
                   onLinkActivated: function(link){ Qt.openUrlExternally(link) }
